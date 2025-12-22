@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Pagination from '@/components/Pagination';
-import { API } from '@/lib/api';
 
 const METHODS = [
   { value: 'ALL', label: 'Todos' },
   { value: 'CASH', label: 'Efectivo' },
   { value: 'DEBIT', label: 'Débito' },
   { value: 'CREDIT', label: 'Crédito' },
-  { value: 'MP', label: 'Mercado Pago' },
-  { value: 'SUBSCRIPTION', label: 'Suscripción' }, // si querés agruparlos por método
+  { value: 'TRANSFER', label: 'Transferencia' },
 ];
 
 const TYPES = [
@@ -38,18 +36,6 @@ export default function PaymentsTableServer({ title = 'Movimientos', initialPage
     []
   );
 
-  function exportCSV() {
-    const qs = new URLSearchParams();
-    if (from) qs.set('from', from);
-    if (to)   qs.set('to', to);
-    if (method && method !== 'ALL') qs.set('method', method);
-    if (type && type !== 'ALL')     qs.set('type', type);
-    // opcional: si estás filtrando por abonado en esta vista
-    // if (subscriberId) qs.set('subscriberId', subscriberId);
-    const url = `${API}/payments/export?${qs.toString()}`;
-    // Abrir descarga
-    window.open(url, '_blank');
-  }
 
   async function load(){
     setErr(''); setLoading(true);
@@ -112,7 +98,6 @@ export default function PaymentsTableServer({ title = 'Movimientos', initialPage
             </select>
           </div>
           <button onClick={applyNow} className="px-3 py-2 rounded-lg border bg-white">{loading ? 'Cargando…' : 'Aplicar'}</button>
-          <button onClick={exportCSV} className='px-3 py-2 rounded-lg border bg-gray-900 text-white'>Exportar CSV</button>
         </div>
       </div>
 
@@ -147,11 +132,12 @@ export default function PaymentsTableServer({ title = 'Movimientos', initialPage
                 <td className="p-2">
                   <span className={`px-2 py-1 rounded-lg text-xs ${
                     p.method==='DEBIT' ? 'bg-amber-100 text-amber-800' :
+                    p.method==='CREDIT' ? 'bg-fuchsia-100 text-fuchsia-800' :
                     p.method==='CASH' ? 'bg-indigo-100 text-indigo-800' :
-                    p.method==="TRANSFER" ? 'bg-gray-100 text-gray-700' :
+                    p.method==="TRANSFER" ? 'bg-emerald-100 text-emerald-800' :
                     'bg-gray-100 text-gray-700'
                   }`}>
-                    {p.method==='DEBIT' ? 'Débito' : p.method==='CASH' ? 'Efectivo' : p.method==="TRANSFER" ? 'Transferencia' : "Otro"}
+                    {p.method==='DEBIT' ? 'Débito' : p.method==='CREDIT' ? 'Crédito' : p.method==='CASH' ? 'Efectivo' : p.method==="TRANSFER" ? 'Transferencia' : "Otro"}
                   </span>
                 </td>
                 <td className="p-2 text-right">{fmt.format(p.amount || 0)}</td>

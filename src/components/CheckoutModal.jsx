@@ -9,16 +9,26 @@ const METHODS = [
   { value: 'CASH', label: 'Efectivo' },
   { value: 'DEBIT', label: 'Débito' },
   { value: 'CREDIT', label: 'Crédito' },
-  { value: 'MP', label: 'Mercado Pago' },
+  { value: 'TRANSFER', label: 'Transferencia' },
 ];
 
-export default function CheckoutModal({ open, ticket, onClose, onDone, userId }) {
+function newLine(method = 'CASH', amount = 0) {
+  return {
+    id: crypto?.randomUUID?.() || String(Math.random()),
+    method,
+    amount: String(amount || ''),
+    amountGiven: '',
+    note: '',
+    externalId: '',
+  };
+}
+
+export default function CheckoutModal({ open, ticket, onClose, onDone }) {
   const { rateplans, fetchRateplans } = useData();
   const [loading, setLoading] = useState(false);
   const [amountDue, setAmount] = useState(0);
   const [minutes, setMinutes] = useState(0);
-  const [method, setMethod] = useState('CASH');
-  const [received, setReceived] = useState('');
+  const [lines, setLines] = useState([newLine('CASH', 0)]);
   const [error, setError] = useState('');
 
   // formateador $ARS
@@ -30,8 +40,14 @@ export default function CheckoutModal({ open, ticket, onClose, onDone, userId })
   // carga tarifas (por si no están) y estima total al abrir
   useEffect(() => {
     if (!open || !ticket) return;
-    setError(''); setMethod('CASH'); setReceived(''); setMinutes(0); setAmount(0);
+
+    setError('');
+    setMinutes(0);
+    setAmount(0);
+    setLines([newLine('CASH', 0)]);
+
     fetchRateplans(); // no re-fetch si ya están
+
     (async () => {
       setLoading(true);
       try {
@@ -40,49 +56,90 @@ export default function CheckoutModal({ open, ticket, onClose, onDone, userId })
         if (est?.amount != null) {
           setAmount(est.amount);
           setMinutes(est.minutes);
+          setLines([newLine('CASH', est.amount)]);
           return;
         }
+
         // 2) fallback: cálculo local con rateplans
         const rp = rateplans.find(r => r.id === ticket.ratePlanId) ||
                    rateplans.find(r => r.vehicleType === ticket.vehicleType);
         if (!rp) throw new Error('No se encontró la tarifa del ticket.');
         const checkIn = new Date(ticket.checkInAt);
         const mins = Math.max(1, Math.ceil((Date.now() - checkIn.getTime()) / 60000));
+        const amt = calcAmount(mins, rp, new Date());
+
         setMinutes(mins);
-        setAmount(calcAmount(mins, rp, new Date()));
+        setAmount(amt);
+        setLines([newLine('CASH', amt)]);
       } catch (e) {
         setError(String(e.message || e));
       } finally {
         setLoading(false);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ticket]);
 
-  const change = useMemo(() => {
-    const r = Number(received || 0);
+  const totals = useMemo(() => {
     const due = Number(amountDue || 0);
-    return Math.max(0, r - due);
-  }, [received, amountDue]);
+    const parsed = lines.map((l) => ({
+      ...l,
+      amountNum: Number(l.amount || 0),
+      amountGivenNum: Number(l.amountGiven || 0),
+    }));
+
+    const pay = parsed.reduce((s, l) => s + (Number.isFinite(l.amountNum) ? l.amountNum : 0), 0);
+    const remaining = Math.max(0, due - pay);
+
+    const invalid = parsed.some((l) => {
+      const method = String(l.method || '').toUpperCase();
+      if (!method) return true;
+      if (!Number.isFinite(l.amountNum) || l.amountNum <= 0) return true;
+      if (method === 'CASH' && l.amountGiven !== '' && (!Number.isFinite(l.amountGivenNum) || l.amountGivenNum < l.amountNum)) {
+        return true;
+      }
+      return false;
+    });
+
+    return { due, pay, remaining, invalid, parsed };
+  }, [lines, amountDue]);
 
   const canConfirm = useMemo(() => {
     if (loading || !ticket) return false;
     if (!Number.isFinite(Number(amountDue))) return false;
-    if (method === 'CASH') return Number(received) >= Number(amountDue);
-    return true; // tarjetas/MP no requieren "recibido"
-  }, [loading, ticket, amountDue, method, received]);
+    if (Number(amountDue || 0) === 0) return true; // abonado (o tolerancia) → cerrar sin pagos
+    return totals.pay > 0 && !totals.invalid;
+  }, [loading, ticket, amountDue, totals]);
 
   async function confirm() {
     try {
-      setLoading(true); setError('');
-      const body = { method, ...(method === 'CASH' ? { amountGiven: Number(received) } : {}) };
+      setLoading(true);
+      setError('');
+
+      const payments = totals.parsed
+        .filter((l) => Number.isFinite(l.amountNum) && l.amountNum > 0)
+        .map((l) => {
+          const method = String(l.method || '').toUpperCase();
+          const payload = {
+            method,
+            amount: l.amountNum,
+            note: l.note || null,
+            externalId: l.externalId || null,
+          };
+          if (method === 'CASH') {
+            payload.amountGiven = l.amountGiven === '' ? null : Number(l.amountGiven);
+          }
+          return payload;
+        });
+
       const res = await api(`/tickets/${ticket.id}/checkout`, {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ payments }),
       });
-      notify.ok(`Cobrado correctamente`);
-      const closedId = res?.ticketId ?? ticket?.id ?? res?.id;
-      onDone?.(closedId, res);
+
+      notify.ok(res?.status === 'PAYMENT_PENDING' ? 'Ticket pendiente: falta cobrar saldo' : 'Cobrado correctamente');
+      const ticketId = res?.ticketId ?? ticket?.id ?? res?.id;
+      onDone?.(ticketId, res);
       onClose?.();
     } catch (e) {
       setError(String(e.message || e));
@@ -129,37 +186,116 @@ export default function CheckoutModal({ open, ticket, onClose, onDone, userId })
             <div className="text-2xl font-semibold">{fmt.format(Number(amountDue || 0))}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 mb-1">Método</div>
-            <select
-              className="w-full rounded-lg border p-2 bg-white"
-              value={method}
-              onChange={e => setMethod(e.target.value)}
-              disabled={loading}
-            >
-              {METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+            <div className="text-xs text-gray-500">Pagado</div>
+            <div className="font-medium">{fmt.format(Number(totals.pay || 0))}</div>
+            <div className="text-xs text-gray-500">Saldo: {fmt.format(Number(totals.remaining || 0))}</div>
           </div>
         </div>
 
-        {method === 'CASH' && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Recibido</div>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                className="w-full rounded-lg border p-2"
-                value={received}
-                onChange={e => setReceived(e.target.value)}
+        {Number(amountDue || 0) > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">Pagos</div>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg border bg-white"
+                onClick={() => setLines((prev) => [...prev, newLine('TRANSFER', totals.remaining || 0)])}
                 disabled={loading}
-                placeholder="0"
-              />
+              >
+                + Agregar pago
+              </button>
             </div>
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Vuelto</div>
-              <div className="font-medium">{fmt.format(change)}</div>
-            </div>
+
+            {lines.map((l, idx) => (
+              <div key={l.id} className="rounded-xl border p-3 space-y-2">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <div className="text-xs text-gray-500 mb-1">Método</div>
+                    <select
+                      className="w-full rounded-lg border p-2 bg-white"
+                      value={l.method}
+                      onChange={(e) =>
+                        setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, method: e.target.value } : x)))
+                      }
+                      disabled={loading}
+                    >
+                      {METHODS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="w-32">
+                    <div className="text-xs text-gray-500 mb-1">Importe</div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      className="w-full rounded-lg border p-2"
+                      value={l.amount}
+                      onChange={(e) =>
+                        setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, amount: e.target.value } : x)))
+                      }
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+
+                {String(l.method).toUpperCase() === 'CASH' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Recibido</div>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        className="w-full rounded-lg border p-2"
+                        value={l.amountGiven}
+                        onChange={(e) =>
+                          setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, amountGiven: e.target.value } : x)))
+                        }
+                        disabled={loading}
+                        placeholder="(opcional)"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Vuelto</div>
+                      <div className="font-medium">
+                        {fmt.format(
+                          Math.max(0, (Number(l.amountGiven || 0) || 0) - (Number(l.amount || 0) || 0))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Nota (opcional)</div>
+                  <input
+                    className="w-full rounded-lg border p-2"
+                    value={l.note}
+                    onChange={(e) =>
+                      setLines((prev) => prev.map((x) => (x.id === l.id ? { ...x, note: e.target.value } : x)))
+                    }
+                    disabled={loading}
+                    placeholder="Ej: pagó mitad en efectivo"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-gray-500">#{idx + 1}</div>
+                  <button
+                    type="button"
+                    className="px-3 py-1 rounded-lg border bg-white"
+                    onClick={() => setLines((prev) => prev.filter((x) => x.id !== l.id))}
+                    disabled={loading || lines.length === 1}
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

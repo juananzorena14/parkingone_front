@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 import NewSubscriberModal from '@/components/NewSubscriberModal';
 import EditSubscriberModal from '@/components/EditSubscriberModal';
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal';
-import { Banknote, Pencil, X } from 'lucide-react';
+import { CircleDollarSign, PencilLine, Trash2 } from 'lucide-react';
 import ChargeSubscriptionModal from '@/components/subscribers/ChargeSubscriptionModal';
 import Pagination from '@/components/Pagination';
 import { notify } from '@/lib/toast';
@@ -100,9 +100,32 @@ export default function Subscribers(){
                 </td>
                 <td className="p-2 text-right">
                   <div className="flex justify-end gap-2">
-                    <Banknote onClick={() => setChargeRow(s)}/>
-                    <Pencil onClick={() => setEditRow(s)} />
-                    <X onClick={()=>setDelRow(s)}/>
+                    <button
+                      type="button"
+                      title="Cobrar suscripción"
+                      onClick={() => setChargeRow(s)}
+                      className="inline-flex items-center justify-center h-9 w-9 rounded-lg border bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-200 transition"
+                    >
+                      <CircleDollarSign className="w-5 h-5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Editar abonado"
+                      onClick={() => setEditRow(s)}
+                      className="inline-flex items-center justify-center h-9 w-9 rounded-lg border bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-200 transition"
+                    >
+                      <PencilLine className="w-5 h-5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Eliminar abonado"
+                      onClick={() => setDelRow(s)}
+                      className="inline-flex items-center justify-center h-9 w-9 rounded-lg border bg-rose-50 text-rose-700 hover:bg-rose-100 hover:border-rose-200 transition"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
                   </div>
                 </td>
               </tr>

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { notify } from '@/lib/toast';
 
 const METHODS = [
-  { value: 'CASH',   label: 'Efectivo' },
-  { value: 'DEBIT',  label: 'Débito' },
-  { value: 'CREDIT', label: 'Crédito' },
-  { value: 'MP',     label: 'Mercado Pago' },
+  { value: 'CASH',     label: 'Efectivo' },
+  { value: 'DEBIT',    label: 'Débito' },
+  { value: 'CREDIT',   label: 'Crédito' },
+  { value: 'TRANSFER', label: 'Transferencia' },
 ];
 
 export default function ChargeSubscriptionModal({ open, data, onClose, onDone }) {
@@ -39,15 +40,18 @@ export default function ChargeSubscriptionModal({ open, data, onClose, onDone })
     try {
       setBusy(true);
       setErr('');
-      // Endpoint mínimo: solo avanza meses (no registra Payment aún)
+
       await api(`/subscribers/${data.id}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ months, method })
+        body: JSON.stringify({ months, method }),
       });
-      onDone && onDone(notify.ok('Abonado actualizado correctamente'),);
+
+      notify.ok('Pago registrado');
+      onDone?.();
+      onClose?.();
     } catch (e) {
-      notify.err(e.message || e),
+      notify.err(e.message || e);
       setErr(String(e?.message || e));
     } finally {
       setBusy(false);
@@ -101,7 +105,7 @@ export default function ChargeSubscriptionModal({ open, data, onClose, onDone })
             <span className="font-semibold">{fmt.format(amount)}</span>
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            * El backend de esta versión solo avanza el vencimiento. Si querés registrar el pago con método y monto, lo sumamos luego.
+            Se registra un movimiento en "Movimientos" y se actualiza el próximo vencimiento.
           </div>
         </div>
 

@@ -56,8 +56,29 @@ export default function CheckInModal({ open, onClose, onDone }) {
       setLoading(true);
       setErr('');
 
-      // Si es abonado → check-in simplificado (sin rateplan)
+      // Si es abonado:
+      // - Al día: ticket sin cargo (isSubscription)
+      // - Vencido: se permite ingreso pero cobra normal (requiere ratePlanId)
       if (abonado?.abonado) {
+        if (abonado.pastDue) {
+          const rp = rateplans.find(r => r.id === Number(ratePlanId));
+          if (!rp) return alert('Elegí una tarifa.');
+
+          const t = await api('/tickets', {
+            method: 'POST',
+            body: JSON.stringify({
+              plate: p,
+              vehicleType: rp.vehicleType,
+              ratePlanId: rp.id,
+            }),
+          });
+
+          notify.ok('Ingreso registrado (abonado vencido: cobra normal)');
+          onDone?.(t);
+          onClose?.();
+          return;
+        }
+
         const t = await api('/tickets', {
           method:'POST',
           body: JSON.stringify({
@@ -127,7 +148,7 @@ export default function CheckInModal({ open, onClose, onDone }) {
           />
         </div>
 
-        {!abonado?.abonado && (
+        {(!abonado?.abonado || abonado?.pastDue) && (
           <div>
             <label className="text-sm">Tarifa</label>
             <select
@@ -150,7 +171,7 @@ export default function CheckInModal({ open, onClose, onDone }) {
 
         {abonado?.abonado && (
           <div className={`text-sm rounded-lg border p-2 ${abonado.pastDue ? 'border-yellow-300 bg-yellow-50 text-yellow-800' : 'border-green-200 bg-green-50 text-green-700'}`}>
-            {abonado.pastDue ? '⚠️ Abonado con cuota vencida. Se permite ingreso pero sin facturación.' : '✅ Abonado activo: el ticket no tendrá cargo.'}
+            {abonado.pastDue ? '⚠️ Abonado con cuota vencida. Se permite ingreso pero cobra normal.' : '✅ Abonado activo: el ticket no tendrá cargo.'}
           </div>
         )}
         

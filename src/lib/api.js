@@ -1,5 +1,20 @@
 export const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+function normalizeApiUrl(path) {
+  // Full URLs pass-through (useful for downloads / external services)
+  if (/^https?:\/\//i.test(String(path || ''))) return String(path);
+
+  const p = String(path || '');
+  const withSlash = p.startsWith('/') ? p : `/${p}`;
+
+  // Allow explicitly-scoped paths (back-compat)
+  if (withSlash.startsWith('/api/')) return `${API}${withSlash}`;
+  if (withSlash.startsWith('/public/')) return `${API}${withSlash}`;
+
+  // Default: everything is served under /api
+  return `${API}/api${withSlash}`;
+}
+
 export async function api(path, opts = {}) {
   const token = localStorage.getItem('token') || sessionStorage.getItem('token');
   const headers = {
@@ -8,7 +23,7 @@ export async function api(path, opts = {}) {
     ...(opts.headers || {}),
   };
 
-  const url = `${API}${path}`;
+  const url = normalizeApiUrl(path);
   const res = await fetch(url, { ...opts, headers });
 
   const text = await res.text();

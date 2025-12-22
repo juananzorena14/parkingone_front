@@ -56,8 +56,7 @@ export default function PaymentsTable({ title = 'Pagos recientes', subscriberId 
               <option value="CASH">Efectivo</option>
               <option value="DEBIT">Débito</option>
               <option value="CREDIT">Crédito</option>
-              <option value="MP">Mercado Pago</option>
-              <option value="SUBSCRIPTION">Suscripción</option>
+              <option value="TRANSFER">Transferencia</option>
             </select>
           </div>
           <button onClick={load} className="px-3 py-2 rounded-lg border bg-white">{loading ? 'Cargando…' : 'Aplicar'}</button>
