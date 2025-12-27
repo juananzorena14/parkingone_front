@@ -21,3 +21,19 @@ body { @apply bg-gray-100 text-gray-800; }
 .pp-pop-in {
   animation: ppPopIn 180ms ease-out both;
 }
+
+@media print {
+  body { background: #fff !important; }
+
+  /* Print only the receipt block */
+  #root * { visibility: hidden !important; }
+  .printable, .printable * { visibility: visible !important; }
+
+  .printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0;
+  }
+}
