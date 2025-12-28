@@ -108,7 +108,9 @@ export default function CheckoutModal({ open, ticket, onClose, onDone }) {
     if (loading || !ticket) return false;
     if (!Number.isFinite(Number(amountDue))) return false;
     if (Number(amountDue || 0) === 0) return true; // abonado (o tolerancia) → cerrar sin pagos
-    return totals.pay > 0 && !totals.invalid;
+
+    // Sin "payment pending": el checkout debe cubrir el total.
+    return totals.pay > 0 && totals.remaining === 0 && !totals.invalid;
   }, [loading, ticket, amountDue, totals]);
 
   async function confirm() {
@@ -137,7 +139,7 @@ export default function CheckoutModal({ open, ticket, onClose, onDone }) {
         body: JSON.stringify({ payments }),
       });
 
-      notify.ok(res?.status === 'PAYMENT_PENDING' ? 'Ticket pendiente: falta cobrar saldo' : 'Cobrado correctamente');
+      notify.ok('Cobrado correctamente');
       const ticketId = res?.ticketId ?? ticket?.id ?? res?.id;
       onDone?.(ticketId, res);
       onClose?.();

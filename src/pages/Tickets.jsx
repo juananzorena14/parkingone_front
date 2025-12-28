@@ -1,24 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import CheckInModal from '@/components/CheckInModal';
 import { calcAmount } from '@/lib/price';
 import { useData } from '@/stores/rateplans';
 import CheckoutModal from '@/components/CheckoutModal';
-import FixPaymentsModal from '@/components/FixPaymentsModal';
 import { useAuth } from '@/stores/auth';
 import CheckInReceiptModal from '@/components/CheckInReceiptModal';
 import { notify } from '@/lib/toast';
 
 export default function Tickets(){
   const [items, setItems] = useState([]);
-  const [pending, setPending] = useState([]);
   const [q, setQ] = useState('');
+  const searchRef = useRef(null);
 
   const [openIn, setOpenIn] = useState(false);
   const [openOut, setOpenOut] = useState(false);
   const [current, setCurrent] = useState(null);
-  const [fixId, setFixId] = useState(null);
-  const [openFix, setOpenFix] = useState(false);
 
   const user = useAuth(s => s.user);
   const { rateplans, fetchRateplans } = useData();
@@ -31,13 +28,18 @@ export default function Tickets(){
     setItems(res.data || res);
   }
 
-  async function loadPending() {
-    const res = await api('/tickets/shift?status=PAYMENT_PENDING');
-    setPending(res.data || res);
+  useEffect(()=>{ load(); }, []);
+  useEffect(() => { fetchRateplans(); }, []);
+
+  function focusSearch() {
+    // En caja: minimizar clicks.
+    setTimeout(() => searchRef.current?.focus?.(), 0);
   }
 
-  useEffect(()=>{ load(); loadPending(); }, []);
-  useEffect(() => { fetchRateplans(); }, []);
+  useEffect(() => {
+    focusSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function useTicker(ms = 15000) {
   const [now, setNow] = useState(Date.now());
@@ -129,16 +131,12 @@ export default function Tickets(){
     if (!qNorm) return items;
     return items.filter(t => matchQuery(t, qNorm));
   }, [items, qNorm]);
-  const filteredPending = useMemo(() => {
-    if (!qNorm) return pending;
-    return pending.filter(t => matchQuery(t, qNorm));
-  }, [pending, qNorm]);
 
   async function handleSearchEnter() {
     const query = qNorm;
     if (!query) return;
 
-    // 1) Match exact en memoria (ideal para scanner: pega el entryCode y manda Enter)
+    // 1) Match exact en memoria (scanner)
     const exactOpen = items.find((t) => normQuery(t?.entryCode) === query || String(t?.id ?? '') === query);
     if (exactOpen) {
       beginCheckout(exactOpen);
@@ -149,12 +147,6 @@ export default function Tickets(){
     // 2) Comportamiento anterior: si queda 1 match, acción directa
     if (filteredItems.length === 1) {
       beginCheckout(filteredItems[0]);
-      setQ('');
-      return;
-    }
-    if (filteredPending.length === 1) {
-      setFixId(filteredPending[0].id);
-      setOpenFix(true);
       setQ('');
       return;
     }
@@ -183,12 +175,14 @@ export default function Tickets(){
 
         <div className="flex items-center gap-2">
           <input
+            ref={searchRef}
             className="px-3 py-2 rounded-lg shadow-md bg-white"
-            placeholder="Buscar patente / código (QR)…"
+            placeholder="Escanear QR / buscar patente…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
+              // Muchos scanners envían Enter, otros Tab.
+              if (e.key !== 'Enter' && e.key !== 'Tab') return;
               e.preventDefault();
               void handleSearchEnter();
             }}
@@ -322,113 +316,6 @@ export default function Tickets(){
         </div>
       </div>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Pendientes de cobro</h2>
-
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-2">
-          {filteredPending.map((t) => {
-            const mins = ageMinutes(t.checkOutAt);
-            const isOld = mins >= 30;
-
-            return (
-              <div key={t.id} className={`rounded-2xl bg-white shadow-md border p-3 ${isOld ? 'border-amber-200 bg-amber-50/50' : ''}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-lg font-semibold leading-tight">{t.plate}</div>
-                    <div className="text-xs text-gray-500">Ticket #{t.id}</div>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-lg ${mins >= 30 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>
-                    {t.checkOutAt ? fmtDuration(mins) : '—'}
-                  </span>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <div className="text-xs text-gray-500">Salida</div>
-                    <div className="font-medium">{t.checkOutAt ? new Date(t.checkOutAt).toLocaleTimeString() : '-'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Saldo</div>
-                    <div className="font-semibold text-amber-800">{fmt.format(t.balance || 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Total</div>
-                    <div className="font-medium">{fmt.format(t.ticketTotal || 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Pagado</div>
-                    <div className="font-medium">{fmt.format(t.totalPaid || 0)}</div>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex justify-end">
-                  <button
-                    className="px-3 py-2 rounded-xl border bg-gray-900 text-white"
-                    onClick={() => { setFixId(t.id); setOpenFix(true); }}
-                  >
-                    Completar
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
-          {!filteredPending.length && (
-            <div className="rounded-xl bg-white border p-4 text-gray-500">Sin pendientes</div>
-          )}
-        </div>
-
-        {/* Desktop table */}
-        <div className="hidden md:block overflow-x-auto rounded-xl shadow-md bg-white">
-          <table className="min-w-full text-sm table-auto">
-            <thead className="bg-white">
-              <tr>
-                <th className="p-2 text-left">#</th>
-                <th className="p-2 text-left">Patente</th>
-                <th className="p-2 text-left">Salida</th>
-                <th className="p-2 text-left">Hace</th>
-                <th className="p-2 text-right">Total</th>
-                <th className="p-2 text-right">Pagado</th>
-                <th className="p-2 text-right">Saldo</th>
-                <th className="p-2 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPending.map(t => {
-                const mins = ageMinutes(t.checkOutAt);
-                const isOld = mins >= 30; // 30m+ pendiente
-                return (
-                <tr key={t.id} className={`border-t ${isOld ? 'bg-amber-50' : ''}`}>
-                  <td className="p-2">{t.id}</td>
-                  <td className="p-2">{t.plate}</td>
-                  <td className="p-2">{t.checkOutAt ? new Date(t.checkOutAt).toLocaleString() : '-'}</td>
-                  <td className="p-2">
-                    <span className={`text-xs px-2 py-1 rounded-lg ${mins >= 30 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>
-                      {t.checkOutAt ? fmtDuration(mins) : '—'}
-                    </span>
-                  </td>
-                  <td className="p-2 text-right">{fmt.format(t.ticketTotal || 0)}</td>
-                  <td className="p-2 text-right">{fmt.format(t.totalPaid || 0)}</td>
-                  <td className="p-2 text-right">{fmt.format(t.balance || 0)}</td>
-                  <td className="p-2 text-right">
-                    <button
-                      className="px-3 py-1 rounded-lg border"
-                      onClick={() => { setFixId(t.id); setOpenFix(true); }}
-                    >
-                      Completar
-                    </button>
-                  </td>
-                </tr>
-                );
-              })}
-              {!filteredPending.length && (
-                <tr><td className="p-4" colSpan="8">Sin pendientes</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       <CheckInModal
         open={openIn}
@@ -446,20 +333,15 @@ export default function Tickets(){
         onClose={() => {
           setOpenOut(false);
           setCurrent(null);
+          focusSearch();
         }}
         onDone={(ticketId) => {
           setOpenOut(false);
           setCurrent(null);
           setItems((prev) => prev.filter((t) => Number(t.id) !== Number(ticketId)));
-          setTimeout(() => { load(); loadPending(); }, 200);
+          setTimeout(() => { load(); }, 200);
+          focusSearch();
         }}
-      />
-
-      <FixPaymentsModal
-        open={openFix}
-        ticketId={fixId}
-        onClose={() => { setOpenFix(false); setFixId(null); }}
-        onDone={() => loadPending()}
       />
     </div>
   );
