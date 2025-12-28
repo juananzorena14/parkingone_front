@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import Pagination from '@/components/Pagination';
+import Modal from '@/components/Modal';
+import { notify } from '@/lib/toast';
+import { useAuth } from '@/stores/auth';
 
 const METHODS = [
   { value: 'ALL', label: 'Todos' },
@@ -19,6 +22,19 @@ const TYPES = [
 
 export default function PaymentsTableServer({ title = 'Movimientos', initialPage = 1, pageSize = 10, defaultMethod = 'ALL', defaultType = 'ALL' }) {
   const [items, setItems] = useState([]);
+
+  const user = useAuth((s) => s.user);
+  const canManage = ['ADMIN', 'SUPERVISOR'].includes(String(user?.role || '').toUpperCase());
+
+  const [openReverse, setOpenReverse] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState(null);
+  const [reverseReason, setReverseReason] = useState('');
+
+  const [openEdit, setOpenEdit] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editMethod, setEditMethod] = useState('CASH');
+  const [editExternalId, setEditExternalId] = useState('');
+  const [editNote, setEditNote] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [method, setMethod] = useState(defaultMethod);
@@ -36,6 +52,62 @@ export default function PaymentsTableServer({ title = 'Movimientos', initialPage
     []
   );
 
+
+  function openReverseFor(p) {
+    setReverseTarget(p);
+    setReverseReason('');
+    setOpenReverse(true);
+  }
+
+  function openEditFor(p) {
+    setEditTarget(p);
+    setEditMethod(String(p?.method || 'CASH').toUpperCase());
+    setEditExternalId(p?.externalId == null ? '' : String(p.externalId));
+    setEditNote(p?.note == null ? '' : String(p.note));
+    setOpenEdit(true);
+  }
+
+  async function confirmReverse() {
+    const p = reverseTarget;
+    const reason = String(reverseReason || '').trim();
+    if (!p?.id) return;
+    if (!reason) return notify.err('Ingresá un motivo');
+
+    try {
+      await api(`/payments/${p.id}/reverse`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      notify.ok('Pago reversado');
+      setOpenReverse(false);
+      setReverseTarget(null);
+      load();
+    } catch (e) {
+      notify.err(e?.message || 'No se pudo reversar');
+    }
+  }
+
+  async function confirmEdit() {
+    const p = editTarget;
+    if (!p?.id) return;
+
+    try {
+      await api(`/payments/${p.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          method: editMethod,
+          externalId: editExternalId,
+          note: editNote,
+        }),
+      });
+      notify.ok('Pago actualizado');
+      setOpenEdit(false);
+      setEditTarget(null);
+      load();
+    } catch (e) {
+      notify.err(e?.message || 'No se pudo actualizar');
+    }
+  }
 
   async function load(){
     setErr(''); setLoading(true);
@@ -113,46 +185,156 @@ export default function PaymentsTableServer({ title = 'Movimientos', initialPage
               <th className="p-2 text-left">Método</th>
               <th className="p-2 text-right">Monto</th>
               <th className="p-2 text-left">Usuario</th>
+              <th className="p-2 text-left">Estado</th>
               <th className="p-2 text-left">Nota</th>
+              {canManage && <th className="p-2 text-right">Acciones</th>}
             </tr>
           </thead>
           <tbody>
-            {items.map(p => (
-              <tr key={p.id} className="border-t">
-                <td className="p-2">{new Date(p.createdAt).toLocaleString()}</td>
-                <td className="p-2">
-                  <span className={`px-2 py-1 rounded-lg text-xs ${
-                    p.kind==='SUBSCRIPTION' ? 'bg-amber-100 text-amber-800' :
-                    p.kind==='TICKET' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
-                  }`}>
-                    {p.kind==='SUBSCRIPTION' ? 'Suscripción' : p.kind==='TICKET' ? 'Ticket' : 'Otro'}
-                  </span>
-                </td>
-                <td className="p-2">{p.ref || '-'}</td>
-                <td className="p-2">
-                  <span className={`px-2 py-1 rounded-lg text-xs ${
-                    p.method==='DEBIT' ? 'bg-amber-100 text-amber-800' :
-                    p.method==='CREDIT' ? 'bg-fuchsia-100 text-fuchsia-800' :
-                    p.method==='CASH' ? 'bg-indigo-100 text-indigo-800' :
-                    p.method==="TRANSFER" ? 'bg-emerald-100 text-emerald-800' :
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {p.method==='DEBIT' ? 'Débito' : p.method==='CREDIT' ? 'Crédito' : p.method==='CASH' ? 'Efectivo' : p.method==="TRANSFER" ? 'Transferencia' : "Otro"}
-                  </span>
-                </td>
-                <td className="p-2 text-right">{fmt.format(p.amount || 0)}</td>
-                <td className="p-2">{p.userName || p.createdBy || '-'}</td>
-                <td className="p-2">{p.note || '-'}</td>
-              </tr>
-            ))}
+            {items.map(p => {
+              const isReversal = Boolean(p.isReversal || p.reversesPaymentId);
+              const isReversed = Boolean(p.isReversed || p.reversalId);
+              const disableActions = isReversal || isReversed;
+
+              return (
+                <tr key={p.id} className="border-t">
+                  <td className="p-2">{new Date(p.createdAt).toLocaleString()}</td>
+                  <td className="p-2">
+                    <span className={`px-2 py-1 rounded-lg text-xs ${
+                      p.kind==='SUBSCRIPTION' ? 'bg-amber-100 text-amber-800' :
+                      p.kind==='TICKET' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
+                    }`}>
+                      {p.kind==='SUBSCRIPTION' ? 'Suscripción' : p.kind==='TICKET' ? 'Ticket' : 'Otro'}
+                    </span>
+                  </td>
+                  <td className="p-2">{p.ref || '-'}</td>
+                  <td className="p-2">
+                    <span className={`px-2 py-1 rounded-lg text-xs ${
+                      p.method==='DEBIT' ? 'bg-amber-100 text-amber-800' :
+                      p.method==='CREDIT' ? 'bg-fuchsia-100 text-fuchsia-800' :
+                      p.method==='CASH' ? 'bg-indigo-100 text-indigo-800' :
+                      p.method==="TRANSFER" ? 'bg-emerald-100 text-emerald-800' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {p.method==='DEBIT' ? 'Débito' : p.method==='CREDIT' ? 'Crédito' : p.method==='CASH' ? 'Efectivo' : p.method==="TRANSFER" ? 'Transferencia' : "Otro"}
+                    </span>
+                  </td>
+                  <td className={`p-2 text-right ${isReversal ? 'text-red-700' : ''}`}>{fmt.format(p.amount || 0)}</td>
+                  <td className="p-2">{p.userName || p.createdBy || '-'}</td>
+                  <td className="p-2">
+                    <div className="flex flex-wrap gap-1">
+                      {isReversal && <span className="px-2 py-1 rounded-lg text-xs bg-red-100 text-red-800">Reverso</span>}
+                      {isReversed && <span className="px-2 py-1 rounded-lg text-xs bg-gray-100 text-gray-700">Reversado</span>}
+                    </div>
+                  </td>
+                  <td className="p-2">{p.note || '-'}</td>
+                  {canManage && (
+                    <td className="p-2 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className={`px-2 py-1 rounded-lg border bg-white text-xs ${disableActions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          disabled={disableActions}
+                          onClick={() => openEditFor(p)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className={`px-2 py-1 rounded-lg border bg-gray-900 text-white text-xs ${disableActions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          disabled={disableActions}
+                          onClick={() => openReverseFor(p)}
+                        >
+                          Reversar
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
             {!items.length && (
-              <tr><td className="p-3 text-gray-500" colSpan={7}>Sin pagos para el filtro.</td></tr>
+              <tr><td className="p-3 text-gray-500" colSpan={canManage ? 9 : 8}>Sin pagos para el filtro.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       <Pagination page={page} size={size} total={total} onPage={setPage} />
+
+      <Modal
+        open={openReverse}
+        onClose={() => setOpenReverse(false)}
+        title={reverseTarget ? `Reversar pago #${reverseTarget.id}` : 'Reversar pago'}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button className="px-3 py-2 rounded-lg border bg-white" onClick={() => setOpenReverse(false)}>
+              Cancelar
+            </button>
+            <button className="px-3 py-2 rounded-lg border bg-gray-900 text-white" onClick={confirmReverse}>
+              Confirmar reverso
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="text-xs text-gray-500">Se creará un pago negativo (quedan ambos en el historial).</div>
+          <div>
+            <label className="text-xs text-gray-500">Motivo</label>
+            <input
+              className="mt-1 block w-full rounded-lg border p-2"
+              value={reverseReason}
+              onChange={(e) => setReverseReason(e.target.value)}
+              placeholder="Ej: cobro duplicado"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={openEdit}
+        onClose={() => setOpenEdit(false)}
+        title={editTarget ? `Editar pago #${editTarget.id}` : 'Editar pago'}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button className="px-3 py-2 rounded-lg border bg-white" onClick={() => setOpenEdit(false)}>
+              Cancelar
+            </button>
+            <button className="px-3 py-2 rounded-lg border bg-gray-900 text-white" onClick={confirmEdit}>
+              Guardar
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-500">Método</label>
+            <select className="mt-1 block w-full rounded-lg border p-2 bg-white" value={editMethod} onChange={(e) => setEditMethod(e.target.value)}>
+              {METHODS.filter(m => m.value !== 'ALL').map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">External ID (opcional)</label>
+            <input
+              className="mt-1 block w-full rounded-lg border p-2"
+              value={editExternalId}
+              onChange={(e) => setEditExternalId(e.target.value)}
+              placeholder="Ej: MP-123 / transferencia"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">Nota (opcional)</label>
+            <input
+              className="mt-1 block w-full rounded-lg border p-2"
+              value={editNote}
+              onChange={(e) => setEditNote(e.target.value)}
+            />
+          </div>
+          <div className="text-xs text-gray-500">No se modifica el monto desde acá. Para corregir monto: reversar + cobrar correcto.</div>
+        </div>
+      </Modal>
     </div>
   );
 }
