@@ -35,9 +35,10 @@ export default function CheckInModal({ open, onClose, onDone }) {
       return; 
     } try {
       const data = await api(`/subscribers/lookup/by-plate?plate=${encodeURIComponent(x)}`);
-      setAbonado(data);  // { abonado:{...}, pastDue:bool }
-    } catch { 
-      setAbonado(null); 
+      if (data?.found) setAbonado(data); // { found:true, abonado:{...}, pastDue:bool }
+      else setAbonado(null);
+    } catch {
+      setAbonado(null);
     }
   }
 
@@ -64,7 +65,7 @@ export default function CheckInModal({ open, onClose, onDone }) {
           const rp = rateplans.find(r => r.id === Number(ratePlanId));
           if (!rp) return alert('Elegí una tarifa.');
 
-          const t = await api('/tickets', {
+          const res = await api('/tickets', {
             method: 'POST',
             body: JSON.stringify({
               plate: p,
@@ -73,13 +74,15 @@ export default function CheckInModal({ open, onClose, onDone }) {
             }),
           });
 
+          const t = res?.data || res?.ticket || res;
+
           notify.ok('Ingreso registrado (abonado vencido: cobra normal)');
           onDone?.(t);
           onClose?.();
           return;
         }
 
-        const t = await api('/tickets', {
+        const res = await api('/tickets', {
           method:'POST',
           body: JSON.stringify({
             plate: p,
@@ -87,8 +90,10 @@ export default function CheckInModal({ open, onClose, onDone }) {
             // ratePlanId: null (server ignora)
           })
         });
-        onDone?.(t); 
-        onClose?.(); 
+
+        const t = res?.data || res?.ticket || res;
+        onDone?.(t);
+        onClose?.();
         return;
       }
 
@@ -96,7 +101,7 @@ export default function CheckInModal({ open, onClose, onDone }) {
     const rp = rateplans.find(r => r.id === Number(ratePlanId));
     if (!rp) return alert('Elegí una tarifa.');
 
-    const t = await api('/tickets', {
+    const res = await api('/tickets', {
       method: 'POST',
       body: JSON.stringify({ 
         plate: p, 
@@ -104,6 +109,8 @@ export default function CheckInModal({ open, onClose, onDone }) {
         ratePlanId: rp.id 
       })
     });
+
+    const t = res?.data || res?.ticket || res;
     notify.ok('Ingreso registrado');
     onDone?.(t);
     onClose?.();

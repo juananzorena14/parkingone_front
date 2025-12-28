@@ -3,6 +3,10 @@
 html, body, #root { height: 100%; }
 body { @apply bg-gray-100 text-gray-800; }
 
+/* Print helpers */
+.print-only { display: none; }
+.screen-only { display: block; }
+
 /* Simple animations (used for shift open/close modals) */
 @keyframes ppFadeIn {
   from { opacity: 0; }
@@ -29,6 +33,9 @@ body { @apply bg-gray-100 text-gray-800; }
   #root * { visibility: hidden !important; }
   .printable, .printable * { visibility: visible !important; }
 
+  .screen-only { display: none !important; }
+  .print-only { display: block !important; }
+
   .printable {
     position: absolute;
     left: 0;
@@ -36,4 +43,25 @@ body { @apply bg-gray-100 text-gray-800; }
     width: 100%;
     padding: 0;
   }
+
+  /* Basic thermal-like receipt */
+  .pp-ticket {
+    width: 80mm;
+    margin: 0 auto;
+    padding: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    color: #000;
+  }
+  .pp-ticket__title { text-align: center; font-weight: 800; font-size: 14px; margin: 2px 0 2px; }
+  .pp-ticket__sub { text-align: center; font-size: 11px; margin-bottom: 6px; }
+  .pp-ticket__row { display: flex; justify-content: space-between; gap: 10px; margin: 2px 0; }
+  .pp-ticket__plate { font-size: 14px; letter-spacing: 1px; }
+  .pp-ticket__code { letter-spacing: 1px; }
+  .pp-ticket__sep { text-align: center; margin: 8px 0; }
+  .pp-ticket__label { font-size: 11px; }
+  .pp-ticket__value { margin: 2px 0; }
+  .pp-ticket__muted { font-size: 11px; text-align: center; }
+  .pp-ticket__qr { display: grid; place-items: center; margin: 8px 0; }
+  .pp-ticket__hint { text-align: center; font-size: 11px; margin-top: 4px; }
 }

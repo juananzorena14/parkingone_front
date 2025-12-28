@@ -7,6 +7,7 @@ import CheckoutModal from '@/components/CheckoutModal';
 import FixPaymentsModal from '@/components/FixPaymentsModal';
 import { useAuth } from '@/stores/auth';
 import CheckInReceiptModal from '@/components/CheckInReceiptModal';
+import { notify } from '@/lib/toast';
 
 export default function Tickets(){
   const [items, setItems] = useState([]);
@@ -79,6 +80,10 @@ export default function Tickets(){
     return String(p || '').trim().toUpperCase().replace(/\s+/g,'');
   }
 
+  function normQuery(v) {
+    return String(v || '').trim().toUpperCase().replace(/\s+/g, '');
+  }
+
   function fmtDuration(minutes) {
     const m = Math.max(0, Math.floor(Number(minutes || 0)));
     const h = Math.floor(m / 60);
@@ -106,15 +111,70 @@ export default function Tickets(){
     return amt == null ? '—' : fmt.format(amt);
   }
 
-  const qNorm = useMemo(() => normPlate(q), [q]);
+  const qNorm = useMemo(() => normQuery(q), [q]);
+
+  function matchQuery(t, query) {
+    if (!query) return true;
+    const plate = normPlate(t?.plate);
+    const entry = normQuery(t?.entryCode);
+    const id = String(t?.id ?? '');
+    return (
+      plate.includes(query) ||
+      entry.includes(query) ||
+      id === query
+    );
+  }
+
   const filteredItems = useMemo(() => {
     if (!qNorm) return items;
-    return items.filter(t => normPlate(t.plate).includes(qNorm));
+    return items.filter(t => matchQuery(t, qNorm));
   }, [items, qNorm]);
   const filteredPending = useMemo(() => {
     if (!qNorm) return pending;
-    return pending.filter(t => normPlate(t.plate).includes(qNorm));
+    return pending.filter(t => matchQuery(t, qNorm));
   }, [pending, qNorm]);
+
+  async function handleSearchEnter() {
+    const query = qNorm;
+    if (!query) return;
+
+    // 1) Match exact en memoria (ideal para scanner: pega el entryCode y manda Enter)
+    const exactOpen = items.find((t) => normQuery(t?.entryCode) === query || String(t?.id ?? '') === query);
+    if (exactOpen) {
+      beginCheckout(exactOpen);
+      setQ('');
+      return;
+    }
+
+    // 2) Comportamiento anterior: si queda 1 match, acción directa
+    if (filteredItems.length === 1) {
+      beginCheckout(filteredItems[0]);
+      setQ('');
+      return;
+    }
+    if (filteredPending.length === 1) {
+      setFixId(filteredPending[0].id);
+      setOpenFix(true);
+      setQ('');
+      return;
+    }
+
+    // 3) Fallback: si parece entryCode, lo buscamos en el server (por si la lista no estaba actualizada)
+    if (/^T[A-Z0-9_-]{4,}$/i.test(query)) {
+      try {
+        const res = await api(`/tickets/by-code/${encodeURIComponent(query)}`);
+        const t = res?.ticket || res?.data?.ticket || res?.data || res;
+        if (t?.id) {
+          beginCheckout(t);
+          setQ('');
+          return;
+        }
+        notify.err('Código no encontrado');
+      } catch (e) {
+        notify.err(e?.message || 'Código no encontrado');
+      }
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -124,22 +184,13 @@ export default function Tickets(){
         <div className="flex items-center gap-2">
           <input
             className="px-3 py-2 rounded-lg shadow-md bg-white"
-            placeholder="Buscar patente…"
+            placeholder="Buscar patente / código (QR)…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key !== 'Enter') return;
               e.preventDefault();
-
-              // Si hay exactamente 1 match, abrimos acción directa
-              if (filteredItems.length === 1) {
-                beginCheckout(filteredItems[0]);
-                return;
-              }
-              if (filteredPending.length === 1) {
-                setFixId(filteredPending[0].id);
-                setOpenFix(true);
-              }
+              void handleSearchEnter();
             }}
           />
           {q && (

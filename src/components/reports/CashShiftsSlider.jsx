@@ -95,7 +95,7 @@ export default function CashShiftsSlider({ title = 'Turnos' }) {
           <div className="flex gap-1">
             <button
               type="button"
-              className="p-2 rounded-lg border bg-white"
+              className="p-2 h-10.5 rounded-lg border bg-white"
               onClick={() => scrollByCards(-1)}
               title="Anterior"
             >
